@@ -6,7 +6,10 @@
   "permissions": [
     "core:event:default",
     "core:window:allow-start-resize-dragging",
+    "core:app:default",
     "main-window-commands",
+    "updater:default",
+    "notification:default",
     {
       "identifier": "opener:allow-open-url",
       "allow": [
