@@ -63,6 +63,14 @@
     return text.replace(/\n{2,}/g, "\n");
   }
 
+  function formatCardDate(dateStr: string): string {
+    const date = new Date(dateStr);
+    const day = String(date.getDate()).padStart(2, "0");
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const year = date.getFullYear();
+    return `${day}.${month}.${year}`;
+  }
+
   function timeAgo(dateStr: string): string {
     const now = Date.now();
     const then = new Date(dateStr).getTime();
@@ -72,7 +80,7 @@
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
     if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
     if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
-    return new Date(dateStr).toLocaleDateString();
+    return formatCardDate(dateStr);
   }
 
   let copied = $state(false);
@@ -721,11 +729,7 @@
           colorHex={typeBadgeColor}
         />
       {/if}
-      {#if smartHint && !compactVertical}
-        <span class="smart-hint" title={smartHint}>{smartHint}</span>
-      {:else}
-        <span class="time">{timeAgo(entry.created_at)}</span>
-      {/if}
+      <span class="time">{timeAgo(entry.created_at)}</span>
     </div>
     <div class="card-actions">
       {#if entry.content_type === "text" || entry.content_type === "image"}
@@ -1278,15 +1282,6 @@
   :global([data-input-modality="keyboard"]) .smart-chip-btn:focus {
     outline: none;
     box-shadow: var(--ring-accent-input);
-  }
-
-  .smart-hint {
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: var(--font-size-xs);
-    color: var(--color-text-muted);
   }
 
   .text-preview .math-result {
