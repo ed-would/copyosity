@@ -21,6 +21,28 @@ fn emit_history_changed(app: &AppHandle) {
     let _ = app.emit("history-changed", ());
 }
 
+#[derive(Serialize)]
+pub struct EntryWithSmart {
+    #[serde(flatten)]
+    pub entry: ClipboardEntry,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub smart_kind: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub smart_value: Option<String>,
+}
+
+fn attach_smart_action(entry: ClipboardEntry) -> EntryWithSmart {
+    let detected = (entry.content_type == "text")
+        .then_some(entry.text_content.as_deref())
+        .flatten()
+        .and_then(crate::smart_actions::detect);
+    EntryWithSmart {
+        smart_kind: detected.as_ref().map(|m| m.kind.as_str()),
+        smart_value: detected.map(|m| m.value),
+        entry,
+    }
+}
+
 #[tauri::command]
 pub fn get_entries(
     db: State<'_, Arc<Database>>,
@@ -32,7 +54,7 @@ pub fn get_entries(
     tag: Option<String>,
     tag_variants: Option<Vec<String>>,
     content_kind: Option<String>,
-) -> Result<Vec<ClipboardEntry>, String> {
+) -> Result<Vec<EntryWithSmart>, String> {
     let limit = limit.unwrap_or(50).clamp(1, 200);
     let offset = offset.unwrap_or(0).max(0);
 
@@ -46,6 +68,7 @@ pub fn get_entries(
         tag_variants.as_deref(),
         content_kind.as_deref(),
     )
+    .map(|entries| entries.into_iter().map(attach_smart_action).collect())
     .map_err(|e| e.to_string())
 }
 
@@ -143,6 +166,27 @@ pub fn clear_all_history(app: AppHandle, db: State<'_, Arc<Database>>) -> Result
 #[tauri::command]
 pub fn get_history_counts(db: State<'_, Arc<Database>>) -> Result<HistoryCounts, String> {
     db.get_history_counts().map_err(|e| e.to_string())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeedDemoEntriesResult {
+    pub removed: u32,
+    pub inserted: u32,
+}
+
+/// Replace demo QA entries (`content_hash` prefix `demo:`) with a full fixture set.
+#[tauri::command]
+pub fn seed_demo_entries(
+    app: AppHandle,
+    db: State<'_, Arc<Database>>,
+) -> Result<SeedDemoEntriesResult, String> {
+    let report = crate::demo_seed::seed(db.as_ref())?;
+    emit_history_changed(&app);
+    Ok(SeedDemoEntriesResult {
+        removed: report.removed,
+        inserted: report.inserted,
+    })
 }
 
 #[tauri::command]
@@ -609,6 +653,19 @@ pub fn copy_text(text: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+pub fn generate_qr_code(data: String) -> Result<String, String> {
+    validate_qr_payload(&data)?;
+    crate::qr_code::generate_qr_png_base64(&data)
+}
+
+fn validate_qr_payload(data: &str) -> Result<(), String> {
+    if data.trim().is_empty() || data.len() > 2000 {
+        return Err("Invalid QR payload".to_owned());
+    }
+    Ok(())
+}
+
 fn write_entry_for_paste(clipboard: &mut Clipboard, entry: &ClipboardEntry) -> Result<(), String> {
     match entry.content_type.as_str() {
         "text" => {
@@ -1007,5 +1064,13 @@ mod tests {
     #[test]
     fn settings_app_path_rejects_unsafe_pane_values() {
         assert_eq!(settings_app_path(Some("hub&x=1")), "/settings");
+    }
+
+    #[test]
+    fn validate_qr_payload_rejects_empty_and_oversized() {
+        assert!(validate_qr_payload("").is_err());
+        assert!(validate_qr_payload("   ").is_err());
+        assert!(validate_qr_payload(&"a".repeat(2001)).is_err());
+        assert!(validate_qr_payload("https://example.com").is_ok());
     }
 }

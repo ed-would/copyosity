@@ -97,6 +97,16 @@ export async function getHistoryCounts(): Promise<HistoryCounts> {
   return invoke("get_history_counts");
 }
 
+export type SeedDemoEntriesResult = {
+  removed: number;
+  inserted: number;
+};
+
+/** Replace demo QA entries (content_hash prefix `demo:`) with the full fixture set. */
+export async function seedDemoEntries(): Promise<SeedDemoEntriesResult> {
+  return invoke("seed_demo_entries");
+}
+
 export async function hideMainWindow(): Promise<void> {
   return invoke("hide_main_window");
 }
@@ -301,6 +311,10 @@ export async function resetOverlayBoardSizes(): Promise<void> {
 /** @deprecated Use activateEntry for paste-into-target behavior. */
 export async function pasteEntry(text: string): Promise<void> {
   return invoke("paste_entry", { text });
+}
+
+export async function generateQrCode(data: string): Promise<string> {
+  return invoke("generate_qr_code", { data });
 }
 
 export interface OllamaStatus {

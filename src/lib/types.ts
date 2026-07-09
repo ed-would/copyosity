@@ -17,6 +17,9 @@ export interface ClipboardEntry {
   image_width?: number | null;
   image_height?: number | null;
   image_byte_size?: number | null;
+  /** Computed at query time from text_content via NSDataDetector; not persisted. */
+  smart_kind?: "link" | "email" | "phone" | "address" | null;
+  smart_value?: string | null;
 }
 
 export interface Collection {

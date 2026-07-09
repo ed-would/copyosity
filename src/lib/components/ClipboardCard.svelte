@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { openUrl } from "@tauri-apps/plugin-opener";
   import type { ClipboardEntry } from "$lib/types";
-  import { copyEntry, copyText, activateEntry, deleteEntry, pinEntry, retagEntry } from "$lib/api";
+  import { copyEntry, copyText, activateEntry, deleteEntry, pinEntry, retagEntry, generateQrCode, pasteEntry } from "$lib/api";
   import { prepareBusyUi } from "$lib/run-with-busy-ui";
   import {
     cardTagFooterTruncateFlags,
@@ -16,12 +17,21 @@
     resolveImageFormatBadge,
   } from "$lib/image-meta";
   import CardTypeBadge from "$lib/components/CardTypeBadge.svelte";
+  import SmartQrPopover from "$lib/components/SmartQrPopover.svelte";
   import { detectTextKind, usesMonoPreview } from "$lib/text-kind";
   import {
     notifyCardContextMenuClosed,
     notifyCardContextMenuOpened,
     OVERLAY_CLOSE_CARD_CONTEXT_MENUS,
   } from "$lib/overlay-card-context-menu";
+  import {
+    phoneDialUrl,
+    resolveSmartAction,
+    SMART_KIND_LABEL,
+    smartContextMenuItems,
+    smartPrimaryActionLabel,
+    type SmartActionInfo,
+  } from "$lib/smart-actions";
 
   const {
     entry,
@@ -71,6 +81,10 @@
    * pure-px calc() instead of mixing % with px, which keeps the transition on the
    * compositor thread (no per-frame layout query) and avoids WebKit stutter. */
   let typeWrapWidth = $state(0);
+  let qrOpen = $state(false);
+  let qrLoading = $state(false);
+  let qrImageSrc = $state("");
+  let qrError = $state("");
   let copyAnnouncement = $state("");
   let clickTimer: ReturnType<typeof setTimeout> | undefined;
   let copiedResetTimer: ReturnType<typeof setTimeout> | undefined;
@@ -160,6 +174,15 @@
     });
   }
 
+  function announceOpenFailure() {
+    clearCopyAnnouncement();
+    requestAnimationFrame(() => {
+      if (!mounted) return;
+      copyAnnouncement = "Could not open";
+      clearCopyAnnouncementSoon();
+    });
+  }
+
   function clearCopiedFeedback() {
     copied = false;
     if (copiedResetTimer !== undefined) {
@@ -213,8 +236,9 @@
   }
 
   function openContextMenu(clientX: number, clientY: number) {
-    if (!canPreview) return;
+    if (!canPreview && !smartAction) return;
     onselect?.();
+    closeQrPopover();
     contextMenuPos = { x: clientX, y: clientY };
     if (!contextMenuOpen) notifyCardContextMenuOpened();
     contextMenuOpen = true;
@@ -229,7 +253,7 @@
   }
 
   function handleCardContextMenu(e: MouseEvent) {
-    if (!canPreview) return;
+    if (!canPreview && !smartAction) return;
     e.preventDefault();
     e.stopPropagation();
     openContextMenu(e.clientX, e.clientY);
@@ -237,7 +261,7 @@
 
   /** WKWebView/Tauri often skips `contextmenu`; secondary click still sends pointerdown. */
   function handleCardPointerDown(e: PointerEvent) {
-    if (e.button !== 2 || !canPreview) return;
+    if (e.button !== 2 || (!canPreview && !smartAction)) return;
     e.preventDefault();
     e.stopPropagation();
     openContextMenu(e.clientX, e.clientY);
@@ -247,6 +271,15 @@
     closeContextMenu();
     activatePreview();
     releaseMouseActionFocus();
+  }
+
+  async function handleContextMenuSmart(id: string) {
+    closeContextMenu();
+    if (id === "smart-primary") {
+      await handleSmartPrimary();
+      return;
+    }
+    await handleSmartMenuSelect(id);
   }
 
   function handleClick() {
@@ -363,8 +396,172 @@
     }
   }
 
+  function closeQrPopover() {
+    qrOpen = false;
+    qrLoading = false;
+    qrImageSrc = "";
+    qrError = "";
+  }
+
+  async function copySmartText(text: string, e?: MouseEvent) {
+    e?.stopPropagation();
+    onselect?.();
+    try {
+      await copyText(text);
+      if (!mounted) return;
+      showCopiedFeedback();
+    } catch {
+      if (!mounted) return;
+      announceCopyFailure();
+    } finally {
+      releaseMouseActionFocus();
+    }
+  }
+
+  async function pasteSmartText(text: string, e?: MouseEvent) {
+    e?.stopPropagation();
+    onselect?.();
+    try {
+      await prepareBusyUi();
+      await pasteEntry(text);
+    } finally {
+      releaseMouseActionFocus();
+    }
+  }
+
+  async function openSmartUrl(url: string, e?: MouseEvent) {
+    e?.stopPropagation();
+    onselect?.();
+    try {
+      await openUrl(url);
+    } catch {
+      if (!mounted) return;
+      announceOpenFailure();
+    } finally {
+      releaseMouseActionFocus();
+    }
+  }
+
+  async function showQrForLink(url: string, e?: MouseEvent) {
+    e?.stopPropagation();
+    onselect?.();
+    qrOpen = true;
+    qrLoading = true;
+    qrImageSrc = "";
+    qrError = "";
+    try {
+      const b64 = await generateQrCode(url);
+      if (!mounted) return;
+      qrImageSrc = `data:image/png;base64,${b64}`;
+    } catch {
+      if (!mounted) return;
+      qrError = "Could not generate QR code";
+    } finally {
+      if (mounted) qrLoading = false;
+    }
+  }
+
+  async function runSmartAction(action: SmartActionInfo, e?: MouseEvent) {
+    switch (action.kind) {
+      case "link":
+        await openSmartUrl(action.url, e);
+        break;
+      case "email":
+        await openSmartUrl(`mailto:${action.address}`, e);
+        break;
+      case "phone":
+        await openSmartUrl(`facetime:${phoneDialUrl(action.number)}`, e);
+        break;
+      case "address":
+        await openSmartUrl(`maps://?address=${encodeURIComponent(action.text)}`, e);
+        break;
+      case "color":
+        await copySmartText(action.hex, e);
+        break;
+      case "math":
+        await copySmartText(action.result, e);
+        break;
+      case "json":
+        await copySmartText(action.formatted, e);
+        break;
+      default: {
+        return action satisfies never;
+      }
+    }
+  }
+
+  async function handleSmartPrimary(e?: MouseEvent) {
+    const action = smartAction;
+    if (!action) return;
+    await runSmartAction(action, e);
+  }
+
+  async function handleSmartMenuSelect(id: string) {
+    const action = smartAction;
+    if (!action) return;
+    switch (action.kind) {
+      case "link":
+        if (id === "copy-clean-url") await copySmartText(action.cleanUrl);
+        else if (id === "make-qr") await showQrForLink(action.url);
+        break;
+      case "email":
+        if (id === "copy-address") await copySmartText(action.address);
+        break;
+      case "phone":
+        if (id === "facetime-audio") {
+          await openSmartUrl(`facetime-audio:${phoneDialUrl(action.number)}`);
+        } else if (id === "message") {
+          await openSmartUrl(`sms:${phoneDialUrl(action.number)}`);
+        }
+        break;
+      case "color":
+        if (id === "copy-rgb") await copySmartText(action.rgb);
+        else if (id === "copy-swiftui") await copySmartText(action.swiftUI);
+        break;
+      case "math":
+        if (id === "paste-result") await pasteSmartText(action.result);
+        break;
+      case "json":
+        if (id === "minify") await copySmartText(action.minified);
+        else if (id === "paste-formatted") await pasteSmartText(action.formatted);
+        break;
+      case "address":
+        break;
+      default: {
+        return action satisfies never;
+      }
+    }
+  }
+
+  function handleSmartChipClick(e: MouseEvent) {
+    e.stopPropagation();
+    e.preventDefault();
+    void handleSmartPrimary(e);
+  }
+
+  const smartAction = $derived(entry.content_type === "text" ? resolveSmartAction(entry) : null);
   const textKind = $derived(detectTextKind(entry.text_content));
-  const isMonoPreview = $derived(usesMonoPreview(textKind));
+  const isMonoPreview = $derived(usesMonoPreview(textKind) || smartAction?.kind === "json");
+  const typeBadgeLabel = $derived(smartAction ? SMART_KIND_LABEL[smartAction.kind] : null);
+  const typeBadgeColor = $derived(smartAction?.kind === "color" ? smartAction.hex : null);
+  const smartPrimaryLabel = $derived(
+    smartAction ? smartPrimaryActionLabel(smartAction) : "",
+  );
+  const smartMenuItems = $derived(smartAction ? smartContextMenuItems(smartAction) : []);
+  const mathResultLine = $derived(
+    smartAction?.kind === "math" ? `= ${smartAction.result}` : "",
+  );
+  const smartHint = $derived(
+    smartAction?.kind === "link"
+      ? smartAction.host
+      : smartAction?.kind === "email"
+        ? smartAction.address
+        : smartAction?.kind === "phone"
+          ? smartAction.number
+          : smartAction?.kind === "address"
+            ? smartAction.text
+            : "",
+  );
   const charLabel = $derived(entry.char_count ? `${entry.char_count.toLocaleString()} characters` : "");
   const tags = $derived(cardDisplayTags(entry, aiTaggingEnabled));
   const visibleTags = $derived(tags.slice(0, 3));
@@ -421,13 +618,60 @@
   <span class="sr-only" role="status" aria-live="polite">{copyAnnouncement}</span>
   <div class="card-header">
     <div class="card-type">
-      {#if canPreview}
+      {#if canPreview && smartAction}
+        <div class="type-smart-row">
+          <button
+            class="smart-chip-btn app-btn"
+            type="button"
+            aria-label={smartPrimaryLabel}
+            title={`${smartPrimaryLabel}${smartHint ? ` · ${smartHint}` : ""}`}
+            onclick={handleSmartChipClick}
+            onmousedown={(e) => e.stopPropagation()}
+          >
+            <CardTypeBadge
+              contentType={entry.content_type}
+              formatLabel={imageFormatBadge}
+              labelOverride={typeBadgeLabel}
+              colorHex={typeBadgeColor}
+              smartKind={smartAction.kind}
+              interactive
+            />
+          </button>
+          <button
+            class="type-preview-btn type-preview-btn--beside app-btn"
+            type="button"
+            aria-label="Open preview"
+            title="Preview · Space or ⌘Y"
+            onclick={handlePreviewClick}
+            onmousedown={(e) => e.stopPropagation()}
+          >
+            <svg
+              class="type-preview-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </button>
+        </div>
+      {:else if canPreview}
         <span
           class="type-label-wrap"
           style={typeWrapWidth ? `--type-wrap-w: ${typeWrapWidth}px` : undefined}
           bind:clientWidth={typeWrapWidth}
         >
-          <CardTypeBadge contentType={entry.content_type} formatLabel={imageFormatBadge} />
+          <CardTypeBadge
+            contentType={entry.content_type}
+            formatLabel={imageFormatBadge}
+            labelOverride={typeBadgeLabel}
+            colorHex={typeBadgeColor}
+          />
           <button
             class="type-preview-btn app-btn"
             type="button"
@@ -451,10 +695,37 @@
             </svg>
           </button>
         </span>
+      {:else if smartAction}
+        <button
+          class="smart-chip-btn app-btn"
+          type="button"
+          aria-label={smartPrimaryLabel}
+          title={`${smartPrimaryLabel}${smartHint ? ` · ${smartHint}` : ""}`}
+          onclick={handleSmartChipClick}
+          onmousedown={(e) => e.stopPropagation()}
+        >
+          <CardTypeBadge
+            contentType={entry.content_type}
+            formatLabel={imageFormatBadge}
+            labelOverride={typeBadgeLabel}
+            colorHex={typeBadgeColor}
+            smartKind={smartAction.kind}
+            interactive
+          />
+        </button>
       {:else}
-        <CardTypeBadge contentType={entry.content_type} formatLabel={imageFormatBadge} />
+        <CardTypeBadge
+          contentType={entry.content_type}
+          formatLabel={imageFormatBadge}
+          labelOverride={typeBadgeLabel}
+          colorHex={typeBadgeColor}
+        />
       {/if}
-      <span class="time">{timeAgo(entry.created_at)}</span>
+      {#if smartHint && !compactVertical}
+        <span class="smart-hint" title={smartHint}>{smartHint}</span>
+      {:else}
+        <span class="time">{timeAgo(entry.created_at)}</span>
+      {/if}
     </div>
     <div class="card-actions">
       {#if entry.content_type === "text" || entry.content_type === "image"}
@@ -522,8 +793,11 @@
 
   <div class="card-body">
     {#if entry.content_type === "text"}
-      <div class="text-preview">
+      <div class="text-preview" class:has-math={!!mathResultLine}>
         <div class="text-content" class:mono={isMonoPreview}>{previewText}</div>
+        {#if mathResultLine}
+          <div class="text-content text-content--ocr math-result">{mathResultLine}</div>
+        {/if}
       </div>
     {:else if entry.content_type === "image"}
       <div class="image-preview" class:has-ocr={ocrPreview.length > 0}>
@@ -596,21 +870,51 @@
       style:left="{contextMenuPos.x}px"
       style:top="{contextMenuPos.y}px"
     >
-      <button
-        class="card-context-item app-btn"
-        type="button"
-        role="menuitem"
-        onpointerdown={(e) => e.stopPropagation()}
-        onclick={handleContextMenuPreview}
-      >
-        Preview
-      </button>
+      {#if smartMenuItems.length > 0}
+        <div class="card-context-section" role="group" aria-label="Smart actions">
+          {#each smartMenuItems as item, index (item.id)}
+            <button
+              class="card-context-item app-btn"
+              class:card-context-item--primary={index === 0}
+              type="button"
+              role="menuitem"
+              onpointerdown={(e) => e.stopPropagation()}
+              onclick={() => void handleContextMenuSmart(item.id)}
+            >
+              {item.label}
+            </button>
+          {/each}
+        </div>
+        {#if canPreview}
+          <div class="card-context-separator" role="separator"></div>
+        {/if}
+      {/if}
+      {#if canPreview}
+        <button
+          class="card-context-item app-btn"
+          type="button"
+          role="menuitem"
+          onpointerdown={(e) => e.stopPropagation()}
+          onclick={handleContextMenuPreview}
+        >
+          Preview
+        </button>
+      {/if}
     </div>
   {/if}
+
+  <SmartQrPopover
+    open={qrOpen}
+    loading={qrLoading}
+    imageSrc={qrImageSrc}
+    error={qrError}
+    onclose={closeQrPopover}
+  />
 </div>
 
 <style>
   .clipboard-card-host {
+    position: relative;
     display: contents;
   }
 
@@ -926,6 +1230,69 @@
     box-shadow: var(--shadow-inset-press), var(--ring-accent-input);
   }
 
+  /* Smart cards: keep the type chip as the primary action; show Quick Look beside it. */
+  .type-smart-row {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-segment-inset);
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .type-preview-btn--beside {
+    position: static;
+    inset: auto;
+    z-index: auto;
+    width: var(--size-card-action-hit);
+    height: var(--size-card-action-hit);
+    border-radius: var(--radius-pill);
+    flex-shrink: 0;
+  }
+
+  .card:hover .type-preview-btn--beside,
+  .type-smart-row:focus-within .type-preview-btn--beside,
+  :global([data-input-modality="keyboard"]) .card.selected:focus-within .type-preview-btn--beside {
+    opacity: 1;
+    pointer-events: auto;
+    background: var(--surface-8);
+    border-color: var(--border-soft);
+    color: var(--color-text-body);
+  }
+
+  .smart-chip-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 0;
+    margin: 0;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: var(--radius-pill);
+    flex-shrink: 0;
+  }
+
+  .smart-chip-btn:focus-visible,
+  :global([data-input-modality="keyboard"]) .smart-chip-btn:focus {
+    outline: none;
+    box-shadow: var(--ring-accent-input);
+  }
+
+  .smart-hint {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+  }
+
+  .text-preview .math-result {
+    margin-top: 0.25rem;
+  }
+
   .time {
     font-size: var(--font-size-xs);
     color: var(--color-text-muted);
@@ -1027,6 +1394,17 @@
     border: 1px solid var(--border-default);
     border-radius: var(--radius-inset);
     overflow: hidden;
+  }
+
+  .text-preview.has-math {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .text-preview.has-math .text-content:first-child {
+    -webkit-line-clamp: 6;
+    line-clamp: 6;
   }
 
   .text-content.mono {
@@ -1316,13 +1694,25 @@
     z-index: 90;
     display: flex;
     flex-direction: column;
-    min-width: 9rem;
+    min-width: 11.5rem;
+    max-width: 16rem;
     padding: 0.25rem;
     background: var(--surface-menu);
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-control);
     box-shadow: var(--shadow-elevated);
     pointer-events: auto;
+  }
+
+  .card-context-section {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .card-context-separator {
+    height: 1px;
+    margin: 0.25rem 0.375rem;
+    background: var(--border-soft);
   }
 
   .card-context-item {
@@ -1340,9 +1730,20 @@
     cursor: pointer;
   }
 
+  .card-context-item--primary {
+    font-weight: 600;
+    color: var(--color-accent-text-soft);
+  }
+
   .card-context-item:hover:not(:disabled),
   .card-context-item:focus-visible {
     background: var(--surface-menu-hover);
     outline: none;
+  }
+
+  .card-context-item--primary:hover:not(:disabled),
+  .card-context-item--primary:focus-visible {
+    color: var(--color-accent-text);
+    background: var(--surface-accent-muted);
   }
 </style>

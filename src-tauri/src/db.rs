@@ -1186,6 +1186,36 @@ impl Database {
         Ok(unpinned_remaining == 0)
     }
 
+    /// Removes all entries whose `content_hash` starts with `prefix` (and related tag rows).
+    pub fn delete_entries_by_content_hash_prefix(
+        &self,
+        prefix: &str,
+    ) -> Result<u32, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let pattern = format!("{prefix}%");
+        let ids: Vec<i64> = {
+            let mut stmt =
+                conn.prepare("SELECT id FROM clipboard_entries WHERE content_hash LIKE ?1")?;
+            let rows = stmt.query_map(params![pattern], |row| row.get(0))?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+        for id in &ids {
+            conn.execute(
+                "DELETE FROM clipboard_tags WHERE entry_id = ?1",
+                params![id],
+            )?;
+            let _ = conn.execute(
+                "DELETE FROM clipboard_tag_state WHERE entry_id = ?1",
+                params![id],
+            );
+        }
+        let removed = conn.execute(
+            "DELETE FROM clipboard_entries WHERE content_hash LIKE ?1",
+            params![pattern],
+        )?;
+        Ok(removed as u32)
+    }
+
     pub fn pin_entry(&self, id: i64, pinned: bool) -> Result<(), rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         conn.execute(

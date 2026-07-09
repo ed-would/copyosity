@@ -332,13 +332,13 @@
     <div
       bind:this={panel}
       id={menuId}
-      class="action-menu-panel"
+      class="popover-menu action-menu-panel"
       role="menu"
       aria-label={label}
     >
       {#each items as item, index (item.id)}
         <button
-          class="action-menu-item app-btn"
+          class="popover-menu-item app-btn"
           class:destructive={item.destructive}
           type="button"
           role="menuitem"
@@ -386,48 +386,17 @@
     top: calc(100% + 0.375rem);
     left: 0;
     z-index: 50;
-    display: flex;
-    flex-direction: column;
     width: 100%;
     min-width: 100%;
-    padding: 0.25rem;
-    background: var(--surface-menu);
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius-control);
-    box-shadow: var(--shadow-elevated);
   }
 
-  .action-menu-item {
-    justify-content: flex-start;
-    width: 100%;
-    padding: 0.4375rem 0.625rem;
-    background: transparent;
-    border: none;
-    border-radius: calc(var(--radius-control) - 2px);
-    color: var(--color-text-primary);
-    font-size: var(--font-size-sm);
-    text-align: left;
-    white-space: nowrap;
-    cursor: pointer;
-  }
-
-  .action-menu-item:hover:not(:disabled),
-  .action-menu-item:focus-visible {
-    background: var(--surface-menu-hover);
-  }
-
-  .action-menu-item.destructive {
+  .popover-menu-item.destructive {
     color: var(--color-danger-text);
   }
 
-  .action-menu-item.destructive:hover:not(:disabled),
-  .action-menu-item.destructive:focus-visible {
+  .popover-menu-item.destructive:hover:not(:disabled),
+  .popover-menu-item.destructive:focus-visible {
     background: var(--surface-menu-hover-destructive);
     color: var(--color-danger-text-hover);
-  }
-
-  .action-menu-item:disabled {
-    opacity: var(--opacity-section-disabled);
-    cursor: not-allowed;
   }
 </style>

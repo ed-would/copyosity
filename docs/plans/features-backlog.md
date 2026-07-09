@@ -4,7 +4,7 @@ Living backlog for product features, fixes, and cross-cutting work. **Open items
 
 Not a feature spec — items with a linked `feature-*.md` keep the full design there; open items without a spec stay detailed in this file.
 
-**Related plans:** [feature-overlay-content-tag-filters.md](feature-overlay-content-tag-filters.md) · [feature-voice-hud-accessibility.md](feature-voice-hud-accessibility.md) · [feature-appearance-theme.md](feature-appearance-theme.md) · [audit-hig.md](audit-hig.md) · [feature-quick-look-preview.md](feature-quick-look-preview.md)
+**Related plans:** [feature-smart-actions.md](feature-smart-actions.md) · [feature-overlay-content-tag-filters.md](feature-overlay-content-tag-filters.md) · [feature-voice-hud-accessibility.md](feature-voice-hud-accessibility.md) · [feature-appearance-theme.md](feature-appearance-theme.md) · [audit-hig.md](audit-hig.md) · [feature-quick-look-preview.md](feature-quick-look-preview.md)
 
 **Legend:** **fork** — original Copyosity fork work · **upstream** — merged from upstream **v0.5.1** into Copyosity **0.6.0**
 
@@ -64,6 +64,7 @@ Not a feature spec — items with a linked `feature-*.md` keep the full design t
 ## Shipped — unreleased
 
 - [x] **Quick Look preview** — launcher-style full entry preview for the selected card; in-panel dialog (no separate window), `Space` or `⌘Y` toggles it (`⌘Y` from search), `↓`/`→` exits search to the first visible card, trackpad scroll syncs selection on the horizontal board (vertical: use arrows after scroll). Type-chip eye (clip-path pill collapse) + secondary-click **Preview** on cards; full-resolution image fetch + GIF playback; Image / Recognised text segmented toggle when OCR exists. `←/→`/`↑/↓` keep browsing while preview is open. Spec: [feature-quick-look-preview.md](feature-quick-look-preview.md).
+- [x] **Smart Actions** — per-card type detection and contextual actions (link, email, phone, address, color, math, JSON); spec: [feature-smart-actions.md](feature-smart-actions.md).
 
 ---
 

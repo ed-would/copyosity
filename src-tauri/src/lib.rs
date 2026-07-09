@@ -8,7 +8,8 @@ mod clipboard_macos;
 mod clipboard_monitor;
 mod clipboard_write;
 mod commands;
-mod db;
+pub mod db;
+pub mod demo_seed;
 mod hub;
 mod image_format;
 mod macos_app;
@@ -18,9 +19,11 @@ mod ocr;
 mod ollama;
 mod overlay_dismiss;
 mod palette_window;
+mod qr_code;
 mod quick_menu;
 mod quick_menu_position;
 mod screen;
+mod smart_actions;
 mod tagging;
 mod transcription;
 #[cfg(target_os = "macos")]
@@ -663,6 +666,7 @@ pub fn run() {
             commands::clear_history,
             commands::clear_all_history,
             commands::get_history_counts,
+            commands::seed_demo_entries,
             commands::hide_main_window,
             commands::resize_main_window,
             commands::reset_overlay_board_sizes,
@@ -681,6 +685,7 @@ pub fn run() {
             commands::is_tagging_ready,
             commands::copy_entry,
             commands::copy_text,
+            commands::generate_qr_code,
             commands::activate_entry,
             commands::paste_entry,
             commands::check_accessibility,

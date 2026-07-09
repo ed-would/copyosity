@@ -6,6 +6,18 @@
   "permissions": [
     "core:event:default",
     "core:window:allow-start-resize-dragging",
-    "main-window-commands"
+    "main-window-commands",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "https:*" },
+        { "url": "http:*" },
+        { "url": "mailto:*" },
+        { "url": "facetime:*" },
+        { "url": "facetime-audio:*" },
+        { "url": "sms:*" },
+        { "url": "maps:*" }
+      ]
+    }
   ]
 }

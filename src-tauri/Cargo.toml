@@ -4,6 +4,7 @@ version = "0.6.2"
 description = "Privacy-first clipboard history manager with NeuralDeep Hub, voice, OCR, and local Ollama"
 authors = ["v.kovalskii"]
 edition = "2021"
+default-run = "copyosity"
 
 [lints.rust]
 unused_must_use = "warn"
@@ -17,6 +18,10 @@ redundant_clone = "warn"
 [lib]
 name = "copyosity_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "seed-demo"
+path = "src/bin/seed_demo.rs"
 
 [profile.dev]
 # Fastest local compile (Cargo default). Dependencies stay at opt-level 2 below.
@@ -46,6 +51,7 @@ tokio = { version = "1", features = ["time", "sync"] }
 sha2 = "0.10"
 hex = "0.4"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif"] }
+qrcode = "0.14"
 ureq = { version = "2.10", features = ["json"] }
 cpal = "0.16"
 hound = "3.5"
@@ -86,6 +92,8 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
   "NSOperation",
   "NSError",
   "NSObjCRuntime",
+  "NSRange",
+  "NSTextCheckingResult",
   "block2",
 ] }
 objc2-vision = { version = "0.3", features = ["VNRequest", "VNRecognizeTextRequest", "VNRequestHandler", "VNObservation", "VNTypes"] }
